@@ -71,11 +71,51 @@ via the raw `pg` driver, matching the reference project's pattern
 **Rejected:**
 - **`@cap-js/postgres` native binding** — less code, but intentionally not used here: the
   goal is to rehearse the same raw-SQL-over-destination-secrets pattern the real
-  `capacityplanningscreens` project uses, not CAP's own ORM path.
+  `capacityplanningscreens` project uses, not CAP's own ORM path. Implemented anyway, for
+  comparison, on the `cap-js-postgres-alternative` branch — see below.
 - **OAuth token-minting** (service principal + two-call REST credential exchange) — the
   simpler password role covers this spike; nothing here needs it.
 - **Plain Express + `pg`, no CAP** — pushes CRUD wiring onto the UI5 side by hand instead
   of OData binding.
+
+## Alternative approach — `@cap-js/postgres` (branch: `cap-js-postgres-alternative`)
+
+Same entity, same UI5 app, same PGWS-destination/Credential-Store credential resolution -
+only how the backend talks to Postgres changes. CAP owns persistence natively instead of a
+hand-written repository:
+
+- `db/schema.cds` declares `DemandGroupPlanner` as a real persisted entity (audit fields via
+  `@cds.on.insert`/`@cds.on.update: $user`/`$now`, the same pattern CAP's own `managed`
+  aspect uses internally - see `node_modules/@sap/cds/common.cds`). `srv/demand-group-planner.cds`
+  is a plain, unrenamed projection over it.
+- `srv/server.js` resolves the same PGWS/Credential-Store (or local env var) credentials as
+  the raw-pg branch, but hands them to CAP via `cds.env.requires.db.credentials` in a
+  `cds.on('bootstrap')` hook, instead of building a `pg.Pool` itself. `db.kind: postgres`
+  has to be declared statically in `package.json` - mutating it at runtime in the bootstrap
+  hook was too late, since `cds watch`'s `[development]` profile had already resolved its
+  own in-memory default beforehand.
+- `srv/demand-group-planner.js` shrinks to three small hooks: `before('CREATE')` for the
+  id (no db-side default configured), `on('DELETE')` mapped to
+  `UPDATE(...).set({delete_flag:'Y'}).where(...)` instead of a real delete, and
+  `before(['READ','UPDATE'])` merging in a `delete_flag != 'Y'` filter. Generic
+  CAP+`@cap-js/postgres` handlers do everything else - including correct partial-update
+  (PATCH) semantics **natively**, which the raw-pg branch had to hand-implement with
+  `COALESCE` after a real bug surfaced in manual testing.
+- Runs against its own CAP-managed schema (`cds deploy`), not the raw-pg branch's
+  manually-created table - letting the framework own schema management is one of this
+  approach's actual selling points, not a limitation.
+
+**Real finding, not a raw-pg-branch concern:** `@cap-js/postgres` ships a default
+`pool.acquireTimeoutMillis: 1000` (see its own `package.json`), sized for a same-datacenter
+BTP-provisioned Postgres/HANA. A raw connection to Lakebase measured ~1.4s just for TCP+TLS
+setup (cross-region), so every query failed with `Pool resource could not be acquired
+within 1s` until this was overridden to `15000` in `package.json`'s `cds.requires.db.pool`.
+This is a real, worthwhile trade-off point for anyone evaluating this approach against
+Lakebase specifically, not just a spike artifact.
+
+Verified end-to-end against real Lakebase (`cds deploy` + full HTTP CRUD cycle): Create,
+partial Update (with the native COALESCE-equivalent behavior confirmed, not assumed), Read,
+and soft Delete all correct.
 
 ## Project structure
 

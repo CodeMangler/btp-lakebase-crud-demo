@@ -7,47 +7,38 @@ if (!process.env.VCAP_SERVICES) {
 }
 
 const cds = require('@sap/cds');
-const { Pool } = require('pg');
 const LOG = cds.log('server');
 
 /**
- * Resolves Lakebase connection details and opens a shared pg.Pool on
- * global.pool, exactly like capacityplanningscreens' srv/server.js does for
- * its own PGWS destination.
- *
- * Two paths:
- *  - Deployed (VCAP_SERVICES present): destination "PGWS" for host/port/database/
- *    username, Credential Store (bound service "credstore") for the password.
- *  - Local dev (`cds watch`): plain env vars, so the inner dev loop can hit the
- *    real Lakebase project directly without needing BTP destination/connectivity
- *    services bound locally. See .env.example.
+ * @cap-js/postgres self-registers as the "db" service kind once installed -
+ * no cds.requires.db entry needed in package.json. What it still needs is
+ * connection credentials, which (unlike a normal BTP-provisioned Postgres
+ * service) don't arrive via VCAP_SERVICES automatically for Lakebase - so
+ * this resolves them the same way the raw-pg branch's server.js did (PGWS
+ * destination + Credential Store when deployed, plain env vars locally) and
+ * hands them to CAP before it connects, via cds.on('bootstrap').
  */
-async function connect() {
-  if (process.env.VCAP_SERVICES) {
-    return connectViaDestination();
-  }
-  return connectViaEnv();
+async function resolveCredentials() {
+  return process.env.VCAP_SERVICES ? resolveViaDestination() : resolveViaEnv();
 }
 
-async function connectViaEnv() {
+function resolveViaEnv() {
   const { LB_HOST, LB_PORT, LB_DATABASE, LB_USER, LB_PASSWORD } = process.env;
   if (!LB_HOST || !LB_USER || !LB_PASSWORD) {
     LOG.error('Missing LB_HOST/LB_USER/LB_PASSWORD env vars - see .env.example');
-    return;
+    return null;
   }
-  global.pool = new Pool({
+  return {
     host: LB_HOST,
     port: Number(LB_PORT) || 5432,
     database: LB_DATABASE || 'databricks_postgres',
     user: LB_USER,
     password: LB_PASSWORD,
-    ssl: { rejectUnauthorized: true },
-    max: 5
-  });
-  LOG.info('Connected to Lakebase via local env vars');
+    ssl: { rejectUnauthorized: true }
+  };
 }
 
-async function connectViaDestination() {
+async function resolveViaDestination() {
   const connectivity = require('@sap-cloud-sdk/connectivity');
   const { readPasswordCredential } = require('./common/credential-store.client');
 
@@ -55,28 +46,35 @@ async function connectViaDestination() {
     const destination = await connectivity.getDestination({ destinationName: 'PGWS' });
     if (!destination) {
       LOG.error('PGWS destination not found');
-      return;
+      return null;
     }
 
     const { host, port, database, username, CRED_STORE_NAME } = destination.originalProperties;
     const credstoreBinding = JSON.parse(process.env.VCAP_SERVICES).credstore[0].credentials;
     const credential = await readPasswordCredential(credstoreBinding, CRED_STORE_NAME, 'PGWS');
 
-    global.pool = new Pool({
+    return {
       host,
       port: Number(port) || 5432,
       database: database || 'databricks_postgres',
       user: username,
       password: credential.value,
-      ssl: { rejectUnauthorized: true },
-      max: 5
-    });
-    LOG.info(`Connected to Lakebase via PGWS destination (namespace: ${CRED_STORE_NAME})`);
+      ssl: { rejectUnauthorized: true }
+    };
   } catch (error) {
     LOG.error('Failed to resolve Lakebase connection via PGWS destination:', error);
+    return null;
   }
 }
 
-connect();
+cds.on('bootstrap', async () => {
+  const credentials = await resolveCredentials();
+  if (!credentials) {
+    LOG.error('No Lakebase credentials resolved - the db connection will fail');
+    return;
+  }
+  cds.env.requires.db.credentials = credentials;
+  LOG.info(`Configured Lakebase credentials via ${process.env.VCAP_SERVICES ? 'PGWS destination' : 'local env vars'}`);
+});
 
 module.exports = cds.server;

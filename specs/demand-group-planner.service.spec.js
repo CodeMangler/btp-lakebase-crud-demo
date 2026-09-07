@@ -1,109 +1,91 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Spy on the real, shared repository module object rather than vi.mock()-
-// replacing it: demand-group-planner.js accesses it via `repo.findOne(...)`
-// property access (not destructured at require time), and since both this
-// file and the source file's require() resolve to the same cached module
-// object, spying here is visible there too - no ESM/CJS interop involved.
-const repo = require('../srv/repositories/demand-group-planner.repository.js');
-vi.spyOn(repo, 'findOne');
-vi.spyOn(repo, 'findAll');
-vi.spyOn(repo, 'create');
-vi.spyOn(repo, 'update');
-vi.spyOn(repo, 'softDelete');
+// demand-group-planner.js destructures `const { UPDATE } = cds.ql` at its own
+// require-time, so this spy must exist BEFORE that file is first required -
+// same ordering constraint as jose in credential-store.client.spec.js, but
+// cds.ql.UPDATE (unlike jose's frozen ESM exports) is a plain, configurable
+// property, so vi.spyOn works directly on the real, shared @sap/cds module.
+const cds = require('@sap/cds');
+const updateSpy = vi.spyOn(cds.ql, 'UPDATE');
 
-// cds.service.impl is identity in CAP's own source (lib/index.js: `impl: fn
-// => fn`, verified directly in node_modules) - using the real package here
-// rather than mocking it, since mocking it would just reimplement the same
-// one-line fact with more moving parts.
 const implFn = require('../srv/demand-group-planner.js');
 
 /**
- * The handler-registration function only calls this.on(...) synchronously
- * (it's declared async purely per CAP convention, not because it awaits
- * anything itself) - capturing those registrations gives us the real
- * handler functions to test directly, without spinning up a CDS server.
+ * The handler-registration function only calls this.on(...)/this.before(...)
+ * synchronously - capturing those registrations gives us the real handler
+ * functions to test directly, without a live db connection. What the
+ * generic CAP+@cap-js/postgres CRUD handlers themselves do (including
+ * partial-update semantics) is proven by the real Lakebase runs in
+ * docs/design.md instead - out of scope for a unit test.
  */
 async function registerHandlers() {
-  const handlers = {};
+  const registrations = { on: {}, before: {} };
   const fakeThis = {
     entities: { DemandGroupPlanner: 'DemandGroupPlannerEntity' },
-    on(event, _entity, handler) { handlers[event] = handler; }
+    on(event, _entity, handler) { registrations.on[event] = handler; },
+    before(events, _entity, handler) {
+      for (const event of Array.isArray(events) ? events : [events]) registrations.before[event] = handler;
+    }
   };
   await implFn.call(fakeThis);
-  return handlers;
+  return registrations;
 }
 
-describe('demand-group-planner service handlers', () => {
+describe('demand-group-planner service handlers (native @cap-js/postgres persistence)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('READ without an id lists all rows via findAll', async () => {
-    const handlers = await registerHandlers();
-    repo.findAll.mockResolvedValue([{ id: '1' }]);
+  describe('before CREATE', () => {
+    it('generates an id when the incoming payload has none', async () => {
+      const { before } = await registerHandlers();
+      const req = { data: { demand_group: 'DG1', planner: 'Bob' } };
 
-    const result = await handlers.READ({ data: {}, user: { id: 'planner1' } });
+      before.CREATE(req);
 
-    expect(repo.findAll).toHaveBeenCalled();
-    expect(repo.findOne).not.toHaveBeenCalled();
-    expect(result).toEqual([{ id: '1' }]);
+      expect(req.data.id).toMatch(/^[0-9a-f-]{36}$/);
+    });
+
+    it('leaves a client-supplied id untouched', async () => {
+      const { before } = await registerHandlers();
+      const req = { data: { id: 'explicit-id', demand_group: 'DG1', planner: 'Bob' } };
+
+      before.CREATE(req);
+
+      expect(req.data.id).toBe('explicit-id');
+    });
   });
 
-  it('READ with an id fetches that one row via findOne, not findAll', async () => {
-    const handlers = await registerHandlers();
-    repo.findOne.mockResolvedValue({ id: '42' });
+  describe('before READ/UPDATE', () => {
+    it('is registered for both READ and UPDATE, not just one', async () => {
+      const { before } = await registerHandlers();
 
-    const result = await handlers.READ({ data: { id: '42' }, user: { id: 'planner1' } });
+      expect(before.READ).toBe(before.UPDATE);
+    });
 
-    expect(repo.findOne).toHaveBeenCalledWith('42');
-    expect(repo.findAll).not.toHaveBeenCalled();
-    expect(result).toEqual({ id: '42' });
+    it('merges a delete_flag exclusion into the query rather than replacing it', async () => {
+      const { before } = await registerHandlers();
+      const whereSpy = vi.fn();
+      const req = { query: { where: whereSpy } };
+
+      before.READ(req);
+
+      expect(whereSpy).toHaveBeenCalledWith({ delete_flag: { '!=': 'Y' } });
+    });
   });
 
-  it('CREATE forwards the payload and the resolved username', async () => {
-    const handlers = await registerHandlers();
-    repo.create.mockResolvedValue({ id: 'new' });
+  describe('DELETE', () => {
+    it('soft-deletes via UPDATE...SET delete_flag, never a real row delete, and returns the id', async () => {
+      const { on } = await registerHandlers();
+      const setSpy = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+      updateSpy.mockReturnValue({ set: setSpy });
 
-    await handlers.CREATE({ data: { demand_group: 'DG1', planner: 'Bob' }, user: { id: 'planner1' } });
+      const result = await on.DELETE({ data: { id: '1' } });
 
-    expect(repo.create).toHaveBeenCalledWith({ demand_group: 'DG1', planner: 'Bob' }, 'planner1');
-  });
-
-  it('UPDATE forwards the id, the full payload, and the username as separate arguments', async () => {
-    const handlers = await registerHandlers();
-    repo.update.mockResolvedValue({ id: '1' });
-
-    await handlers.UPDATE({ data: { id: '1', planner: 'Carol' }, user: { id: 'planner1' } });
-
-    expect(repo.update).toHaveBeenCalledWith('1', { id: '1', planner: 'Carol' }, 'planner1');
-  });
-
-  it('DELETE soft-deletes via the repository and returns the deleted id', async () => {
-    const handlers = await registerHandlers();
-    repo.softDelete.mockResolvedValue(undefined);
-
-    const result = await handlers.DELETE({ data: { id: '1' }, user: { id: 'planner1' } });
-
-    expect(repo.softDelete).toHaveBeenCalledWith('1', 'planner1');
-    expect(result).toBe('1');
-  });
-
-  it('falls back to "unknown" for an anonymous user instead of writing "anonymous" as an audit value', async () => {
-    const handlers = await registerHandlers();
-    repo.create.mockResolvedValue({});
-
-    await handlers.CREATE({ data: { demand_group: 'DG1', planner: 'Bob' }, user: { id: 'anonymous' } });
-
-    expect(repo.create).toHaveBeenCalledWith(expect.anything(), 'unknown');
-  });
-
-  it('falls back to "unknown" when req.user is missing entirely, rather than throwing', async () => {
-    const handlers = await registerHandlers();
-    repo.create.mockResolvedValue({});
-
-    await handlers.CREATE({ data: { demand_group: 'DG1', planner: 'Bob' } });
-
-    expect(repo.create).toHaveBeenCalledWith(expect.anything(), 'unknown');
+      expect(updateSpy).toHaveBeenCalledWith('DemandGroupPlannerEntity');
+      expect(setSpy).toHaveBeenCalledWith({ delete_flag: 'Y' });
+      expect(setSpy.mock.results[0].value.where).toHaveBeenCalledWith({ id: '1' });
+      expect(result).toBe('1');
+    });
   });
 });

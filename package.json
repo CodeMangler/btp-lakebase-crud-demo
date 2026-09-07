@@ -13,14 +13,13 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@cap-js/postgres": "^3.1.0",
     "@sap-cloud-sdk/connectivity": "^4.9.1",
     "@sap/cds": "^10.1.0",
     "express": "^5.2.1",
-    "jose": "^6.2.12",
-    "pg": "^8.16.3"
+    "jose": "^6.2.12"
   },
   "devDependencies": {
-    "@cap-js/sqlite": "^3.1.0",
     "@sap/cds-dk": "^10.1.0",
     "cds-plugin-ui5": "^0.17.4",
     "dotenv": "^17.4.2",
@@ -30,12 +29,20 @@
   },
   "cds": {
     "requires": {
+      "db": {
+        "kind": "postgres",
+        "pool": {
+          "acquireTimeoutMillis": 15000
+        }
+      },
       "auth": {
         "[development]": {
           "kind": "mocked",
           "users": {
             "planner": {
-              "roles": [ "Planner" ]
+              "roles": [
+                "Planner"
+              ]
             }
           }
         },
@@ -45,7 +52,11 @@
       }
     },
     "watch": {
-      "exclude": ["**/node_modules/**", "**/dist/**", "**/.ui5/**"],
+      "exclude": [
+        "**/node_modules/**",
+        "**/dist/**",
+        "**/.ui5/**"
+      ],
       "poll": 500
     }
   }
