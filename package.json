@@ -10,7 +10,10 @@
     "deploy": "cf deploy mta_archives/archive.mtar --retries 1",
     "undeploy": "cf undeploy btp-lakebase-crud-demo --delete-services --delete-service-keys --delete-service-brokers",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down",
+    "db:reset": "docker compose down -v && npm run db:up"
   },
   "dependencies": {
     "@sap-cloud-sdk/connectivity": "^4.9.1",

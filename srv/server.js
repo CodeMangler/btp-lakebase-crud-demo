@@ -30,21 +30,26 @@ async function connect() {
 }
 
 async function connectViaEnv() {
-  const { LB_HOST, LB_PORT, LB_DATABASE, LB_USER, LB_PASSWORD } = process.env;
+  const { LB_HOST, LB_PORT, LB_DATABASE, LB_USER, LB_PASSWORD, LB_SSL } = process.env;
   if (!LB_HOST || !LB_USER || !LB_PASSWORD) {
     LOG.error('Missing LB_HOST/LB_USER/LB_PASSWORD env vars - see .env.example');
     return;
   }
+  // Real Lakebase requires TLS; a local Docker Postgres (see docker-compose.yml)
+  // isn't configured for it - LB_SSL=false switches this off for that case.
+  // Defaults to true so the real-Lakebase path stays secure without every
+  // .env needing to say so explicitly.
+  const sslEnabled = LB_SSL !== 'false';
   global.pool = new Pool({
     host: LB_HOST,
     port: Number(LB_PORT) || 5432,
     database: LB_DATABASE || 'databricks_postgres',
     user: LB_USER,
     password: LB_PASSWORD,
-    ssl: { rejectUnauthorized: true },
+    ssl: sslEnabled ? { rejectUnauthorized: true } : false,
     max: 5
   });
-  LOG.info('Connected to Lakebase via local env vars');
+  LOG.info(`Connected to Postgres via local env vars (${LB_HOST}, ssl: ${sslEnabled})`);
 }
 
 async function connectViaDestination() {

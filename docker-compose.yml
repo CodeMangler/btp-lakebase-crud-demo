@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: local_dev_password
+      POSTGRES_DB: databricks_postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      # Official postgres image runs every *.sql/*.sh in here, in lexical
+      # order, but only on a fresh (empty) data volume - re-running
+      # `docker compose up` against an already-initialized volume does not
+      # re-seed. Use `docker compose down -v` to force a clean re-init.
+      - ./db/local/init:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d databricks_postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata:

@@ -5,10 +5,29 @@ architecture mirrors `capacityplanningscreens` (CAP as OData/auth layer only, ra
 driver, BTP Destination + Credential Store for connection secrets). Full design and the
 verified Databricks/BTP setup runbook: [`docs/design.md`](docs/design.md).
 
-## Run locally against the real Lakebase instance
+## Run locally
 
-No BTP services needed for this loop - `srv/server.js` falls back to plain env vars when
-`VCAP_SERVICES` isn't present.
+No BTP services needed for either option below - `srv/server.js` falls back to plain env
+vars when `VCAP_SERVICES` isn't present. Two ways to point those env vars:
+
+### Option A - local Docker Postgres (fast inner loop, no trial-account usage)
+
+```bash
+npm install
+npm run db:up                        # starts Postgres in Docker, loads schema + seed data
+cp .env.docker.example .env
+npm run watch
+```
+
+`npm run db:down` stops it (keeps data); `npm run db:reset` wipes and reloads from
+`db/local/init/*.sql` (schema + the same 4 seed rows as Lakebase). Colima users: if the
+project directory isn't under `$HOME`, Colima's VM won't mount it by default and the init
+scripts will silently not run (`docker exec <container> ls /docker-entrypoint-initdb.d/`
+comes back empty) - add the parent directory under Colima's `mounts:` config
+(`~/.colima/default/colima.yaml` or wherever `$COLIMA_HOME` points) and `colima restart`.
+Docker Desktop/Podman Desktop don't have this restriction.
+
+### Option B - the real Lakebase instance
 
 ```bash
 npm install
@@ -16,9 +35,8 @@ cp .env.example .env   # fill in LB_PASSWORD
 npm run watch
 ```
 
-Opens `cds watch` with a mocked user (`planner`, role `Planner` - see `package.json`
-`cds.requires.auth`). Test data for `demand_group_planner` was seeded directly via `psql`
-during setup.
+Both start `cds watch` with a mocked user (`planner`, role `Planner` - see `package.json`
+`cds.requires.auth`).
 
 ## Deploy to BTP
 
