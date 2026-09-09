@@ -1,0 +1,151 @@
+_schema-version: 3.3.0
+ID: btp-lakebase-crud-demo
+description: CRUD spike - SAPUI5 -> BTP -> Databricks Lakebase Postgres.
+version: 1.0.0
+
+modules:
+  - name: btp-lakebase-crud-demo-srv
+    type: nodejs
+    path: gen/srv
+    requires:
+      - name: btp-lakebase-crud-demo-connectivity
+      - name: btp-lakebase-crud-demo-destination
+      - name: uaa_btp-lakebase-crud-demo
+      - name: credential-store
+    provides:
+      - name: srv-api
+        properties:
+          srv-url: ${default-url}
+    parameters:
+      buildpack: nodejs_buildpack
+      instances: 1
+    build-parameters:
+      builder: npm-ci
+
+  - name: btp-lakebase-crud-demo-destination-content
+    type: com.sap.application.content
+    requires:
+      - name: btp-lakebase-crud-demo-destination
+        parameters:
+          content-target: true
+      - name: btp-lakebase-crud-demo_html_repo_host
+        parameters:
+          service-key:
+            name: btp-lakebase-crud-demo_html_repo_host-key
+      - name: uaa_btp-lakebase-crud-demo
+        parameters:
+          service-key:
+            name: uaa_btp-lakebase-crud-demo-key
+    parameters:
+      content:
+        instance:
+          destinations:
+            - Name: btp_lakebase_crud_demo_html_repo_host
+              ServiceInstanceName: btp-lakebase-crud-demo-html5-app-host-service
+              ServiceKeyName: btp-lakebase-crud-demo_html_repo_host-key
+              sap.cloud.service: com.spike.btp-lakebase-crud-demo
+            - Authentication: OAuth2UserTokenExchange
+              Name: uaa_btp_lakebase_crud_demo
+              ServiceInstanceName: btp-lakebase-crud-demo-xsuaa-service
+              ServiceKeyName: uaa_btp-lakebase-crud-demo-key
+              sap.cloud.service: com.spike.btp-lakebase-crud-demo
+          existing_destinations_policy: update
+    build-parameters:
+      no-source: true
+
+  - name: btp-lakebase-crud-demo-app-content
+    type: com.sap.application.content
+    path: .
+    requires:
+      - name: btp-lakebase-crud-demo_html_repo_host
+        parameters:
+          content-target: true
+    build-parameters:
+      build-result: resources
+      requires:
+        - artifacts:
+            - uidemandgroupplanner.zip
+          name: uidemandgroupplanner
+          target-path: resources/
+
+  - name: uidemandgroupplanner
+    type: html5
+    path: app/ui.demandgroupplanner
+    build-parameters:
+      build-result: dist
+      builder: custom
+      commands:
+        - npm install
+        - npm run build:cf
+      supported-platforms: []
+
+resources:
+  - name: btp-lakebase-crud-demo-connectivity
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: connectivity
+      service-plan: lite
+
+  - name: btp-lakebase-crud-demo-destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      config:
+        HTML5Runtime_enabled: true
+        init_data:
+          instance:
+            destinations:
+              - Authentication: NoAuthentication
+                Name: ui5
+                ProxyType: Internet
+                Type: HTTP
+                URL: https://ui5.sap.com
+              - Authentication: NoAuthentication
+                HTML5.DynamicDestination: true
+                HTML5.ForwardAuthToken: true
+                HTML5.Timeout: 60000
+                Name: srv-api
+                ProxyType: Internet
+                Type: HTTP
+                URL: ~{srv-api/srv-url}
+            existing_destinations_policy: update
+      service: destination
+      service-plan: lite
+    requires:
+      - name: srv-api
+
+  # Provisioned by hand in the BTP cockpit (Credential Store guide, "Create a
+  # Service Instance"), not by this MTA - hence existing-service, mirroring how
+  # capacityplanningscreens references its own cred-store instance. Actual
+  # instance name is "credential-store" (not the more common "cred-store").
+  - name: credential-store
+    type: org.cloudfoundry.existing-service
+    parameters:
+      service: credstore
+      service-name: credential-store
+      service-plan: trial
+
+  - name: btp-lakebase-crud-demo_html_repo_host
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: html5-apps-repo
+      service-name: btp-lakebase-crud-demo-html5-app-host-service
+      service-plan: app-host
+
+  - name: uaa_btp-lakebase-crud-demo
+    type: org.cloudfoundry.managed-service
+    parameters:
+      path: ./xs-security.json
+      service: xsuaa
+      service-name: btp-lakebase-crud-demo-xsuaa-service
+      service-plan: application
+
+parameters:
+  deploy_mode: html5-repo
+  enable-parallel-deployments: true
+
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - npm ci
+        - npx cds build --production

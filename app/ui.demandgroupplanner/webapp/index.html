@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Demand Group Planner</title>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    /* ComponentSupport wraps our div in its own container div, direct child
+       of body - height:100% on our own div (data-height) only resolves if
+       *that* wrapper also has a real height, which it doesn't by default. */
+    body > div { height: 100%; }
+    /* The View's own root element renders as display:inline-block with no
+       height rule, so it doesn't inherit the (now correct) 100% from its
+       ancestors either - sapUiView is UI5's stable class for this, not an
+       auto-generated id. */
+    .sapUiView { height: 100%; }
+  </style>
+  <script
+    id="sap-ui-bootstrap"
+    src="https://ui5.sap.com/resources/sap-ui-core.js"
+    data-sap-ui-theme="sap_horizon"
+    data-sap-ui-compatVersion="edge"
+    data-sap-ui-async="true"
+    data-sap-ui-frameOptions="trusted"
+    data-sap-ui-resourceroots='{"com.spike.demandgroupplanner": "./"}'
+    data-sap-ui-oninit="module:sap/ui/core/ComponentSupport"
+  ></script>
+</head>
+<body class="sapUiBody" id="content">
+  <div
+    data-sap-ui-component
+    data-name="com.spike.demandgroupplanner"
+    data-id="container"
+    data-settings='{"id": "demandgroupplanner"}'
+    data-height="100%"
+  ></div>
+</body>
+</html>

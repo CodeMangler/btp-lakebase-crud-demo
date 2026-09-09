@@ -1,0 +1,51 @@
+{
+  "_version": "1.60.0",
+  "sap.app": {
+    "id": "com.spike.demandgroupplanner",
+    "type": "application",
+    "title": "Demand Group Planner",
+    "description": "CRUD spike: demand group to planner mapping, backed by Lakebase Postgres",
+    "applicationVersion": { "version": "1.0.0" },
+    "dataSources": {
+      "mainService": {
+        "uri": "/odata/v4/demand-group-planner/",
+        "type": "OData",
+        "settings": { "odataVersion": "4.0" }
+      }
+    }
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "deviceTypes": { "desktop": true, "tablet": true, "phone": true }
+  },
+  "sap.ui5": {
+    "rootView": {
+      "viewName": "com.spike.demandgroupplanner.view.App",
+      "type": "XML",
+      "id": "app"
+    },
+    "dependencies": {
+      "minUI5Version": "1.120.0",
+      "libs": {
+        "sap.m": {},
+        "sap.ui.core": {},
+        "sap.f": {}
+      }
+    },
+    "models": {
+      "": {
+        "dataSource": "mainService",
+        "type": "sap.ui.model.odata.v4.ODataModel",
+        "settings": {
+          "synchronizationMode": "None",
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": true,
+          "groupProperties": {
+            "demandGroupPlannerGroup": { "submit": "API" }
+          }
+        }
+      }
+    }
+  }
+}

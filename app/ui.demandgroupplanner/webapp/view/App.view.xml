@@ -1,0 +1,39 @@
+<mvc:View
+  controllerName="com.spike.demandgroupplanner.controller.App"
+  xmlns:mvc="sap.ui.core.mvc"
+  xmlns="sap.m"
+>
+  <Page title="Demand Group Planner" showHeader="true">
+    <Table
+      id="table"
+      mode="SingleSelectMaster"
+      items="{path: '/DemandGroupPlanner', parameters: {$$updateGroupId: 'demandGroupPlannerGroup'}}"
+    >
+      <headerToolbar>
+        <OverflowToolbar>
+          <Title text="Demand Group -> Planner Mappings" />
+          <ToolbarSpacer />
+          <Button text="Add" press=".onAdd" />
+          <Button text="Delete" type="Reject" press=".onDelete" />
+          <Button text="Save" type="Emphasized" press=".onSave" />
+        </OverflowToolbar>
+      </headerToolbar>
+      <columns>
+        <Column><Text text="Demand Group" /></Column>
+        <Column><Text text="Planner" /></Column>
+        <Column><Text text="Modified By" /></Column>
+        <Column><Text text="Modified On" /></Column>
+      </columns>
+      <items>
+        <ColumnListItem>
+          <cells>
+            <Input value="{demand_group}" required="true" />
+            <Input value="{planner}" required="true" />
+            <Text text="{modified_by}" />
+            <Text text="{modified_date}" />
+          </cells>
+        </ColumnListItem>
+      </items>
+    </Table>
+  </Page>
+</mvc:View>
